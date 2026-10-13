@@ -2,8 +2,8 @@ from typing import Optional
 from locale import getdefaultlocale
 
 lang = {
-    "Tiny Bunny Addon Manager": {
-        "ru_RU": "Менеджер аддонов для игры Tiny Bunny",
+    "Tiny Bunny Mod Manager": {
+        "ru_RU": "Менеджер модов для игры Tiny Bunny",
     },
     "Developer mode": {
         "ru_RU": "Режим разработчика",
@@ -20,8 +20,8 @@ lang = {
     "External console": {
         "ru_RU": "Внешняя консоль",
     },
-    "Game will launch with external console enabled, allowing easier debugging of addons.": {
-        "ru_RU": "Игра будет запущена с внешней консолью, что упростит отладку аддонов.",
+    "Game will launch with external console enabled, allowing easier debugging of mods.": {
+        "ru_RU": "Игра будет запущена с внешней консолью, что упростит отладку модов.",
     },
     "Launch the game!": {
         "ru_RU": "Запустить игру!",
@@ -52,6 +52,9 @@ lang = {
     },
     "The current version of the game component files is up to date! ({0})": {
         "ru_RU": "Текущая версия файлов компонентов игры актуальна! ({0})",
+    },
+    "Installation failed: {0}": {
+        "ru_RU": "Не удалось установить компоненты: {0}",
     },
     "Starting the download...": {
         "ru_RU": "Начинаем загрузку...",

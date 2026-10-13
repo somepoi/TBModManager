@@ -67,7 +67,7 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle(gt("Tiny Bunny Addon Manager"))
+        self.setWindowTitle(gt("Tiny Bunny Mod Manager"))
         self.setWindowIcon(QIcon(":/img/icon.ico"))
         self.setStyleSheet("""
             QWidget { background-color: #1e1e1e; color: #dcdcdc; font-family: "Kazmann Sans"; font-size: 24px; }
@@ -98,7 +98,7 @@ class MainWindow(QWidget):
         lbl.setStyleSheet("""
             QLabel { font-size: 48px; }
         """)
-        lbl.setText(gt("Tiny Bunny Addon Manager"))
+        lbl.setText(gt("Tiny Bunny Mod Manager"))
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(lbl)
 
@@ -111,7 +111,7 @@ class MainWindow(QWidget):
         for var, text, tt in [
             (self.cb_developer,     "Developer mode",   "Game will have developer mode enabled (config.developer)."),
             (self.cb_console,       "In-game console",  "Game will have in-game console enabled (config.console)."),
-            (self.cb_extconsole,    "External console", "Game will launch with external console enabled, allowing easier debugging of addons."),
+            (self.cb_extconsole,    "External console", "Game will launch with external console enabled, allowing easier debugging of mods."),
         ]:
             var.setText(gt(text))
             var.setToolTip(gt(tt))
@@ -200,7 +200,8 @@ class MainWindow(QWidget):
     def _on_finish_install(self):
 
         [obj.setEnabled(True) for obj in [self.cb_console, self.cb_developer, self.cb_extconsole, self.btn_game, self.btn_install]]
-        self.update_status()
+        if self.worker.error is None:
+            self.update_status()
 
     def closeEvent(self, event: QEvent):
         internal.config.save(self.cb_developer.isChecked(), self.cb_console.isChecked(), self.cb_extconsole.isChecked())

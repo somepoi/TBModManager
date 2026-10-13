@@ -1,11 +1,11 @@
-import pathlib, requests, zipfile, shutil, tempfile, os
+import pathlib, requests, zipfile, shutil, tempfile
 from PySide6.QtCore import QObject, Signal
 
 import internal.config
 
 def get_local_game():
     try:
-        return [int(i) for i in (pathlib.Path(internal.config.working_path) / "game" / "TBAddonManager" / "VERSION").read_text().split(".")]
+        return [int(i) for i in (pathlib.Path(internal.config.working_path) / "game" / "TBModManager" / "VERSION").read_text().split(".")]
     except Exception as e:
         print(str(e))
         return None
@@ -35,55 +35,64 @@ class DownloadGameRunner(QObject):
     finished = Signal()
 
     def run(self):
-
-        target_dir = pathlib.Path(internal.config.working_path) / "game" / "TBAddonManager"
-
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        tmp_filename = None
-
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-
-            self.status.emit("Starting the download...", [])
-
-            tmp_filename = tmp_file.name
-
-            try:
+        self.error = None
+        game_dir = (pathlib.Path(internal.config.working_path) / "game").resolve()
+        target_dir = game_dir / "TBModManager"
+        try:
+            # Keep the installed component intact until the new archive is ready.
+            with tempfile.TemporaryDirectory(dir=game_dir, prefix=".tbmm-install-") as tmp_dir:
+                tmp_path = pathlib.Path(tmp_dir).resolve()
+                if tmp_path.parent != game_dir:
+                    raise ValueError("Invalid installation staging directory")
+                archive = tmp_path / "component.zip"
+                staging_dir = tmp_path / "component"
+                staging_dir.mkdir()
+                self.status.emit("Starting the download...", [])
                 downloaded = 0
-                with requests.get("https://github.com/somepoi/TBAddonManager/archive/refs/heads/game-implementation.zip", stream=True, timeout=10) as r:
+                with requests.get("https://github.com/somepoi/TBAddonManager/archive/refs/heads/game-implementation.zip", stream=True, timeout=10) as r, archive.open("wb") as tmp_file:
                     r.raise_for_status()
                     for chunk in r.iter_content(chunk_size=1024*1024):
                         tmp_file.write(chunk)
                         downloaded += len(chunk)
                         self.status.emit("{0} bytes downloaded...", [downloaded])
-                    tmp_file.flush()
-            except:
-                self.finished.emit()
-                return
+                with zipfile.ZipFile(archive) as z:
+                    members = z.namelist()
+                    top_folder = members[0].split("/", 1)[0]
+                    for i, member in enumerate(members):
+                        if not member.startswith(top_folder + "/"):
+                            continue
+                        rel = pathlib.Path(member[len(top_folder) + 1:])
+                        if not rel.parts:
+                            continue
+                        out_path = (staging_dir / rel).resolve()
+                        if not out_path.is_relative_to(staging_dir):
+                            raise ValueError("Invalid path in component archive")
+                        if member.endswith("/"):
+                            out_path.mkdir(parents=True, exist_ok=True)
+                        else:
+                            out_path.parent.mkdir(parents=True, exist_ok=True)
+                            with z.open(member) as src, out_path.open("wb") as dst:
+                                shutil.copyfileobj(src, dst)
+                        self.status.emit("Unpacking \"{0}\", {1} out of {2} files...", [str(rel), i, len(members)])
 
-            with zipfile.ZipFile(tmp_filename) as z:
-                top_folder = z.namelist()[0].split("/", 1)[0]
+                for filename in ("VERSION", "inject.rpy", "main_menu_patch.rpy", "mods.rpy", "mods_screen.rpy", "mods_styles.rpy"):
+                    if not (staging_dir / filename).is_file():
+                        raise ValueError(f"Missing component file: {filename}")
 
-                total = len(z.namelist())
-
-                for i, member in enumerate(z.namelist()):
-                    if not member.startswith(top_folder + "/"):
-                        continue
-                    rel = pathlib.Path(member[len(top_folder) + 1:])
-                    if not rel.parts:
-                        continue
-
-                    out_path = target_dir / rel
-                    if member.endswith("/"):
-                        out_path.mkdir(parents=True, exist_ok=True)
-                    else:
-                        out_path.parent.mkdir(parents=True, exist_ok=True)
-                        with z.open(member) as src, open(out_path, "wb") as dst:
-                            shutil.copyfileobj(src, dst)
-                    self.status.emit("Unpacking \"{0}\", {1} out of {2} files...", [str(rel), i, total])
-
-        os.remove(tmp_filename)
-
-        self.finished.emit()
+                # Replace the installed component, including cached .rpyc files.
+                backup = tmp_path / "previous-component"
+                try:
+                    if target_dir.resolve().parent != game_dir or target_dir.is_symlink():
+                        raise ValueError("Invalid component installation directory")
+                    if target_dir.exists():
+                        target_dir.rename(backup)
+                    staging_dir.rename(target_dir)
+                except Exception:
+                    if backup.exists():
+                        backup.rename(target_dir)
+                    raise
+        except Exception as e:
+            self.error = str(e)
+            self.status.emit("Installation failed: {0}", [str(e)])
+        finally:
+            self.finished.emit()

@@ -1,7 +1,7 @@
 [project]
-name = "TBAddonManager"
+name = "TBModManager"
 version = "0.1.0"
-description = "Addon Manager for Tiny Bunny"
+description = "Mod Manager for Tiny Bunny"
 authors = [
     {name = "ohfkgsofsex", email = "abuanin5@gmail.com"},
     {name = "tecquo", email = ""},
