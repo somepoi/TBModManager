@@ -2,6 +2,36 @@ from typing import Optional
 from locale import getdefaultlocale
 
 lang = {
+    "Cannot connect game components. Close programs using {0} and check folder permissions, then try again.": {
+        "ru_RU": "Не удалось подключить игровые компоненты. Закройте программы, использующие {0}, проверьте права на папку и повторите попытку.",
+    },
+    "Choose game folder": {
+        "ru_RU": "Выбрать папку игры",
+    },
+    "Choose Tiny Bunny folder": {
+        "ru_RU": "Выберите папку Tiny Bunny",
+    },
+    "Local game components linked ({0}).": {
+        "ru_RU": "Локальные игровые компоненты подключены ({0}).",
+    },
+    "Local game components available ({0}). Install them to connect the game.": {
+        "ru_RU": "Доступны локальные компоненты ({0}). Установите их для подключения игры.",
+    },
+    "Connecting game components...": {
+        "ru_RU": "Подключаем игровые компоненты...",
+    },
+    "Previous game components saved to {0}": {
+        "ru_RU": "Предыдущие игровые компоненты сохранены в {0}",
+    },
+    "Game components connected.": {
+        "ru_RU": "Игровые компоненты подключены.",
+    },
+    "Cannot check game components: {0}": {
+        "ru_RU": "Не удалось проверить игровые компоненты: {0}",
+    },
+    "Game launch failed: {0}": {
+        "ru_RU": "Не удалось запустить игру: {0}",
+    },
     "Tiny Bunny Mod Manager": {
         "ru_RU": "Менеджер модов для игры Tiny Bunny",
     },

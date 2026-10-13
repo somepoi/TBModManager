@@ -1,12 +1,28 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
+import os
 import sys
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
 
-block_cipher = None
+project_root = Path(SPECPATH)
+
+if sys.platform == 'win32':
+    # Resolve DLLs from this Python/Qt installation and Windows. Editors may
+    # prepend unrelated runtimes to PATH, including incompatible UCRT DLLs.
+    site_packages = Path(sys.prefix) / 'Lib' / 'site-packages'
+    runtime_paths = [
+        Path(sys.base_prefix),
+        Path(sys.base_prefix) / 'DLLs',
+        site_packages / 'PySide6',
+        site_packages / 'shiboken6',
+        Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32',
+        Path(os.environ.get('SystemRoot', 'C:/Windows')),
+    ]
+    os.environ['PATH'] = os.pathsep.join(str(path) for path in runtime_paths if path.is_dir())
 
 a = Analysis(
-    ['main.py'],
-    pathex=[],
+    [str(project_root / 'main.py')],
+    pathex=[str(project_root)],
     binaries=[],
     datas=[],
     hiddenimports=[],
@@ -32,12 +48,9 @@ a = Analysis(
         "PySide6.QtNetworkAuth*",
         "PySide6.QtRemoteObjects*",
     ],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
@@ -58,5 +71,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['icon.ico'],
+    icon=[str(project_root / 'icon.ico')],
 )

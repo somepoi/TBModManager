@@ -19,3 +19,4 @@ distribution = false
 run-main = "python main.py"
 run-qrc = "pyside6-rcc internal/resources/resources.qrc -o internal/resources_rc.py"
 run-build = "pyinstaller main.spec"
+run-tests = "python -m unittest discover -s tests -v"

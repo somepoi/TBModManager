@@ -1,98 +1,174 @@
-import pathlib, requests, zipfile, shutil, tempfile
+from pathlib import Path, PurePosixPath
+import shutil
+import tempfile
+import uuid
+import zipfile
+
+import requests
 from PySide6.QtCore import QObject, Signal
 
 import internal.config
+from internal.components import install_link, is_directory_link, validate_component
+from internal.paths import data_directory, launcher_directory
 
-def get_local_game():
+
+REPOSITORY = "somepoi/TBModManager"
+RAW_BASE = f"https://raw.githubusercontent.com/{REPOSITORY}"
+ARCHIVE_BASE = f"https://github.com/{REPOSITORY}/archive/refs/heads"
+
+
+class UnifiedComponentUnavailable(ValueError):
+    """The published main still predates the unified repository layout."""
+
+
+def local_component_directory(game_directory=None):
+    source = launcher_directory() / "renpy"
+    if source.is_dir():
+        return validate_component(source)
+    root = game_directory or internal.config.working_path
+    if root:
+        target = Path(root) / "game/TBModManager"
+        if is_directory_link(target) and target.is_dir():
+            linked_source = target.resolve()
+            if linked_source.name == "renpy" and (linked_source.parent / "main.py").is_file() and (linked_source.parent / "pyproject.toml").is_file():
+                return validate_component(linked_source)
+    return None
+
+
+def _read_version(text):
+    parts = text.strip().split(".")
+    if len(parts) != 3 or not all(part.isdecimal() for part in parts):
+        raise ValueError("Invalid component VERSION")
+    return [int(part) for part in parts]
+
+
+def get_local_game(game_directory=None):
     try:
-        return [int(i) for i in (pathlib.Path(internal.config.working_path) / "game" / "TBModManager" / "VERSION").read_text().split(".")]
-    except Exception as e:
-        print(str(e))
+        root = Path(game_directory or internal.config.working_path)
+        return _read_version((root / "game/TBModManager/VERSION").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
         return None
+
 
 def get_remote_game():
     try:
-        return [int(i) for i in requests.get("https://raw.githubusercontent.com/somepoi/TBAddonManager/game-implementation/VERSION").text.split(".")]
-    except Exception as e:
-        print(str(e))
+        for branch, filename in (("main", "renpy/VERSION"), ("game-implementation", "VERSION")):
+            with requests.get(f"{RAW_BASE}/{branch}/{filename}", timeout=(5, 10)) as response:
+                if response.status_code == 404 and branch == "main":
+                    continue
+                response.raise_for_status()
+                return _read_version(response.text)
+    except (requests.RequestException, ValueError):
         return None
 
-def text_game():
-    local = get_local_game()
-    remote = get_remote_game()
+
+def text_game(game_directory=None):
+    root = Path(game_directory or internal.config.working_path)
+    local = get_local_game(root)
+    source = local_component_directory(root)
+    if source is not None:
+        version = (source / "VERSION").read_text(encoding="utf-8").strip()
+        target = root / "game/TBModManager"
+        if is_directory_link(target) and target.resolve() == source.resolve():
+            return ("Local game components linked ({0}).", [version])
+        return ("Local game components available ({0}). Install them to connect the game.", [version])
     if not local:
         return ("Cannot get local files! Are game component files installed?", [None])
+    remote = get_remote_game()
     if not remote:
         return ("Cannot get remote files! Please, check your internet connection.", [None])
-    for i in range(3):
-        if remote[i] > local[i]:
-            return ("The current version of the game component files ({0}) is outdated.\nPlease update them to the latest version ({1}).", [".".join([str(i) for i in local]), ".".join([str(i) for i in remote])])
-    return ("The current version of the game component files is up to date! ({0})", [".".join([str(i) for i in local]), ".".join([str(i) for i in remote])])
+    versions = [".".join(map(str, local)), ".".join(map(str, remote))]
+    if tuple(remote) > tuple(local):
+        return ("The current version of the game component files ({0}) is outdated.\nPlease update them to the latest version ({1}).", versions)
+    return ("The current version of the game component files is up to date! ({0})", versions)
+
+
+def extract_component(archive, destination, legacy=False):
+    """Extract only renpy/ from main; accept the old root layout explicitly."""
+    destination = Path(destination).resolve()
+    with zipfile.ZipFile(archive) as stream:
+        members = stream.infolist()
+        if not members:
+            raise ValueError("Empty component archive")
+        top_folder = members[0].filename.split("/", 1)[0]
+        prefix = top_folder + ("/" if legacy else "/renpy/")
+        selected = [member for member in members if member.filename.startswith(prefix) and member.filename != prefix]
+        if not selected and not legacy:
+            raise UnifiedComponentUnavailable("Published main has no renpy component yet")
+        destination.mkdir(parents=True, exist_ok=True)
+        for member in selected:
+            relative = PurePosixPath(member.filename[len(prefix):])
+            if relative.is_absolute() or ".." in relative.parts or "\\" in member.filename or ":" in str(relative):
+                raise ValueError("Invalid path in component archive")
+            if not relative.parts or any(part.startswith(".") for part in relative.parts):
+                continue
+            output = (destination / Path(*relative.parts)).resolve()
+            if not output.is_relative_to(destination):
+                raise ValueError("Invalid path in component archive")
+            if member.is_dir():
+                output.mkdir(parents=True, exist_ok=True)
+            else:
+                output.parent.mkdir(parents=True, exist_ok=True)
+                with stream.open(member) as src, output.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+    validate_component(destination)
+
 
 class DownloadGameRunner(QObject):
-
     status = Signal(str, list)
     finished = Signal()
 
-    def run(self):
+    def __init__(self, game_directory=None):
+        super().__init__()
+        self.game_directory = Path(game_directory or internal.config.working_path)
         self.error = None
-        game_dir = (pathlib.Path(internal.config.working_path) / "game").resolve()
-        target_dir = game_dir / "TBModManager"
-        try:
-            # Keep the installed component intact until the new archive is ready.
-            with tempfile.TemporaryDirectory(dir=game_dir, prefix=".tbmm-install-") as tmp_dir:
-                tmp_path = pathlib.Path(tmp_dir).resolve()
-                if tmp_path.parent != game_dir:
-                    raise ValueError("Invalid installation staging directory")
-                archive = tmp_path / "component.zip"
-                staging_dir = tmp_path / "component"
-                staging_dir.mkdir()
+        self.backup = None
+
+    def _download_component(self):
+        # A separate persistent directory keeps the installed link working
+        # until its replacement has been fully validated.
+        cache = data_directory() / "components"
+        cache.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=cache, prefix=".download-") as temporary:
+            temporary = Path(temporary)
+            archive = temporary / "component.zip"
+            staging = temporary / "renpy"
+            for branch, legacy in (("main", False), ("game-implementation", True)):
                 self.status.emit("Starting the download...", [])
-                downloaded = 0
-                with requests.get("https://github.com/somepoi/TBAddonManager/archive/refs/heads/game-implementation.zip", stream=True, timeout=10) as r, archive.open("wb") as tmp_file:
-                    r.raise_for_status()
-                    for chunk in r.iter_content(chunk_size=1024*1024):
-                        tmp_file.write(chunk)
-                        downloaded += len(chunk)
-                        self.status.emit("{0} bytes downloaded...", [downloaded])
-                with zipfile.ZipFile(archive) as z:
-                    members = z.namelist()
-                    top_folder = members[0].split("/", 1)[0]
-                    for i, member in enumerate(members):
-                        if not member.startswith(top_folder + "/"):
-                            continue
-                        rel = pathlib.Path(member[len(top_folder) + 1:])
-                        if not rel.parts:
-                            continue
-                        out_path = (staging_dir / rel).resolve()
-                        if not out_path.is_relative_to(staging_dir):
-                            raise ValueError("Invalid path in component archive")
-                        if member.endswith("/"):
-                            out_path.mkdir(parents=True, exist_ok=True)
-                        else:
-                            out_path.parent.mkdir(parents=True, exist_ok=True)
-                            with z.open(member) as src, out_path.open("wb") as dst:
-                                shutil.copyfileobj(src, dst)
-                        self.status.emit("Unpacking \"{0}\", {1} out of {2} files...", [str(rel), i, len(members)])
-
-                for filename in ("VERSION", "inject.rpy", "main_menu_patch.rpy", "mods.rpy", "mods_screen.rpy", "mods_styles.rpy"):
-                    if not (staging_dir / filename).is_file():
-                        raise ValueError(f"Missing component file: {filename}")
-
-                # Replace the installed component, including cached .rpyc files.
-                backup = tmp_path / "previous-component"
+                with requests.get(f"{ARCHIVE_BASE}/{branch}.zip", stream=True, timeout=(5, 15)) as response:
+                    response.raise_for_status()
+                    downloaded = 0
+                    with archive.open("wb") as output:
+                        for chunk in response.iter_content(chunk_size=1024 * 1024):
+                            output.write(chunk)
+                            downloaded += len(chunk)
+                            self.status.emit("{0} bytes downloaded...", [downloaded])
                 try:
-                    if target_dir.resolve().parent != game_dir or target_dir.is_symlink():
-                        raise ValueError("Invalid component installation directory")
-                    if target_dir.exists():
-                        target_dir.rename(backup)
-                    staging_dir.rename(target_dir)
-                except Exception:
-                    if backup.exists():
-                        backup.rename(target_dir)
-                    raise
-        except Exception as e:
-            self.error = str(e)
-            self.status.emit("Installation failed: {0}", [str(e)])
+                    extract_component(archive, staging, legacy=legacy)
+                except UnifiedComponentUnavailable:
+                    continue
+                version = (staging / "VERSION").read_text(encoding="utf-8").strip()
+                source = cache / f"{version}-{uuid.uuid4().hex}"
+                staging.rename(source)
+                return source
+        raise ValueError("Game component not found in repository archives")
+
+    def run(self):
+        try:
+            source = local_component_directory(self.game_directory)
+            if source is None:
+                source = self._download_component()
+            self.status.emit("Connecting game components...", [])
+            self.backup = install_link(self.game_directory, source)
+            if self.backup is not None:
+                self.status.emit("Previous game components saved to {0}", [str(self.backup)])
+            self.status.emit("Game components connected.", [])
+        except PermissionError as error:
+            self.error = str(error)
+            self.status.emit("Cannot connect game components. Close programs using {0} and check folder permissions, then try again.",
+                             [str(self.game_directory / "game/TBModManager")])
+        except Exception as error:
+            self.error = str(error)
+            self.status.emit("Installation failed: {0}", [str(error)])
         finally:
             self.finished.emit()

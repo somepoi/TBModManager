@@ -2,7 +2,6 @@ from PySide6.QtCore import (
     QEvent,
     QObject,
     QThread,
-    QThreadPool,
     Qt,
     Signal,
     Slot,
@@ -13,19 +12,23 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
-from pathlib import Path
 import subprocess
+import sys
 
 import internal.resources_rc
 from internal.lang import gt
 import internal.config
-from internal.downloading import text_game, DownloadGameRunner
+from internal.downloading import text_game, DownloadGameRunner, local_component_directory
+from internal.paths import game_command, normalize_game_directory, remember_game_directory
+from internal.processes import external_program_environment
 
 def init_fonts():
     fonts = {}
@@ -40,16 +43,37 @@ def init_fonts():
             print(f"Could not find font \"{name}\"!")
 
 class GameRunner(QThread):
-    finished = Signal()
+    failed = Signal(str)
 
-    def __init__(self, parent, args, visible):
+    def __init__(self, parent, args, visible, game_directory):
         super().__init__(parent)
         self.args = args
         self.visible = visible
+        self.game_directory = str(game_directory)
 
     def run(self):
-        subprocess.run(self.args, creationflags=subprocess.CREATE_NEW_CONSOLE if self.visible else subprocess.CREATE_NO_WINDOW)
-        self.finished.emit()
+        kwargs = {"cwd": self.game_directory, "env": external_program_environment()}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE if self.visible else subprocess.CREATE_NO_WINDOW
+        try:
+            subprocess.run(self.args, **kwargs)
+        except OSError as error:
+            self.failed.emit(str(error))
+
+
+class GameStatusRunner(QThread):
+    result = Signal(str, list, str)
+
+    def __init__(self, parent, game_directory):
+        super().__init__(parent)
+        self.game_directory = str(game_directory)
+
+    def run(self):
+        try:
+            message, arguments = text_game(self.game_directory)
+        except Exception as error:
+            message, arguments = "Cannot check game components: {0}", [str(error)]
+        self.result.emit(message, arguments, self.game_directory)
 
 class StatusController(QObject):
     def __init__(self, label: QLabel):
@@ -66,6 +90,11 @@ class StatusController(QObject):
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
+        self._busy = False
+        self._status_thread = None
+        self._status_again = False
+        self._close_requested = False
+        self._install_error = None
 
         self.setWindowTitle(gt("Tiny Bunny Mod Manager"))
         self.setWindowIcon(QIcon(":/img/icon.ico"))
@@ -101,6 +130,17 @@ class MainWindow(QWidget):
         lbl.setText(gt("Tiny Bunny Mod Manager"))
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(lbl)
+
+        game_layout = QHBoxLayout()
+        self.lbl_game_path = QLabel()
+        self.lbl_game_path.setMaximumWidth(620)
+        self.lbl_game_path.setStyleSheet("QLabel { font-size: 20px; }")
+        self.btn_select_game = QPushButton(gt("Choose game folder"))
+        self.btn_select_game.clicked.connect(self._select_game)
+        game_layout.addWidget(self.lbl_game_path)
+        game_layout.addWidget(self.btn_select_game)
+        self.main_layout.addLayout(game_layout)
+        self._update_game_path()
 
         # CheckBoxes
         layout_cb = QHBoxLayout()
@@ -139,18 +179,20 @@ class MainWindow(QWidget):
             QLabel { font-size: 20px; }
         """)
         self.lbl_status.setText("\n")
+        self.lbl_status.setWordWrap(True)
+        self.lbl_status.setMinimumHeight(64)
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(self.lbl_status)
 
         self.setFixedSize(self.layout().sizeHint())
 
-        self.download_thread = QThread()
-        self.download_threadpool = QThreadPool()
-
         self.update_status()
 
     def showEvent(self, event):
+        super().showEvent(event)
+        self._load_game_options()
 
+    def _load_game_options(self):
         config_values = internal.config.load()
 
         self.cb_developer.setChecked(config_values[0])
@@ -158,50 +200,142 @@ class MainWindow(QWidget):
         self.cb_extconsole.setChecked(config_values[2])
 
     def update_status(self):
+        if self._busy:
+            return
+        if self._status_thread is not None:
+            self._status_again = True
+            return
+        self._status_thread = GameStatusRunner(self, internal.config.working_path)
+        self._status_thread.result.connect(self._set_game_status)
+        self._status_thread.finished.connect(self._status_finished)
+        self._status_thread.finished.connect(self._status_thread.deleteLater)
+        self._status_thread.start()
 
-        game_version = text_game()
+    @Slot(str, list, str)
+    def _set_game_status(self, message, arguments, game_directory):
+        if self._busy or game_directory != str(internal.config.working_path):
+            return
         self.lbl_status.setStyleSheet(f"""
-            QLabel {{ font-size: 20px; color: {"#c33" if game_version[1] == [None] else "#dcdcdc"}; }}
+            QLabel {{ font-size: 20px; color: {"#c33" if arguments == [None] else "#dcdcdc"}; }}
         """)
-        self.lbl_status.setText(gt(game_version[0]).format(*game_version[1]))
+        self.lbl_status.setText(gt(message).format(*arguments))
+
+    @Slot()
+    def _status_finished(self):
+        self._status_thread = None
+        if self._close_requested and not self._busy:
+            self.close()
+        elif self._status_again:
+            self._status_again = False
+            self.update_status()
+
+    def _update_game_path(self):
+        path = str(internal.config.working_path)
+        self.lbl_game_path.setText(self.lbl_game_path.fontMetrics().elidedText(path, Qt.TextElideMode.ElideMiddle, 620))
+        self.lbl_game_path.setToolTip(path)
+
+    def _select_game(self):
+        selected = QFileDialog.getExistingDirectory(self, gt("Choose Tiny Bunny folder"), str(internal.config.working_path))
+        if not selected:
+            return
+        root = normalize_game_directory(selected)
+        try:
+            if root is None:
+                raise ValueError(gt("The program could not find Tiny Bunny game folder!"))
+            game_command(root)
+            internal.config.save(self.cb_developer.isChecked(), self.cb_console.isChecked(), self.cb_extconsole.isChecked())
+            remember_game_directory(root)
+        except (OSError, ValueError) as error:
+            QMessageBox.critical(self, gt("Error!"), str(error))
+            return
+        internal.config.working_path = str(root)
+        self._update_game_path()
+        self._load_game_options()
+        try:
+            if local_component_directory(root) is not None:
+                self._start_install()
+                return
+        except (OSError, ValueError) as error:
+            QMessageBox.critical(self, gt("Error!"), str(error))
+        self.update_status()
 
     def _start_game(self):
 
-        internal.config.save(self.cb_developer.isChecked(), self.cb_console.isChecked(), self.cb_extconsole.isChecked())
-
-        args = [str(Path(internal.config.working_path) / "lib" / "py3-windows-x86_64" / ("python.exe" if self.cb_extconsole.isChecked() else "pythonw.exe")), str(Path(internal.config.working_path) / "TinyBunny.py")]
-
-        self.process = GameRunner(self, args, self.cb_extconsole.isChecked())
+        try:
+            internal.config.save(self.cb_developer.isChecked(), self.cb_console.isChecked(), self.cb_extconsole.isChecked())
+            args = game_command(internal.config.working_path, self.cb_extconsole.isChecked())
+        except (OSError, ValueError) as error:
+            QMessageBox.critical(self, gt("Error!"), str(error))
+            return
+        self.process = GameRunner(self, args, self.cb_extconsole.isChecked(), internal.config.working_path)
+        self.process.failed.connect(self._game_failed)
         self.process.finished.connect(self._on_finish_game)
         self.hide()
-        self.process.run()
+        self.process.start()
+
+    @Slot(str)
+    def _game_failed(self, error):
+        self.show()
+        QMessageBox.critical(self, gt("Error!"), gt("Game launch failed: {0}").format(error))
 
     def _on_finish_game(self):
-        self.show()
+        self.process.deleteLater()
+        self.process = None
+        if self._close_requested:
+            self.close()
+        else:
+            self.show()
 
     def _start_install(self):
 
-        [obj.setEnabled(False) for obj in [self.cb_console, self.cb_developer, self.cb_extconsole, self.btn_game, self.btn_install]]
+        if self._busy:
+            return
+        self._busy = True
+        self._install_error = None
+        self._set_controls_enabled(False)
 
         self.thread = QThread()
-        self.worker = DownloadGameRunner()
+        self.worker = DownloadGameRunner(internal.config.working_path)
         self.status_controller = StatusController(self.lbl_status)
         self.worker.moveToThread(self.thread)
 
         self.worker.status.connect(self.status_controller.set_label_text)
-        self.worker.finished.connect(self._on_finish_install)
+        self.worker.finished.connect(self._install_worker_finished)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
-        self.worker.finished.connect(self.thread.deleteLater)
+        self.thread.finished.connect(self._on_finish_install)
+        self.thread.finished.connect(self.thread.deleteLater)
 
         self.thread.started.connect(self.worker.run)
         self.thread.start()
 
-    def _on_finish_install(self):
+    @Slot()
+    def _install_worker_finished(self):
+        self._install_error = self.worker.error
 
-        [obj.setEnabled(True) for obj in [self.cb_console, self.cb_developer, self.cb_extconsole, self.btn_game, self.btn_install]]
-        if self.worker.error is None:
+    @Slot()
+    def _on_finish_install(self):
+        self._busy = False
+        self._set_controls_enabled(True)
+        if self._close_requested:
+            self.close()
+        elif self._install_error is None:
             self.update_status()
 
+    def _set_controls_enabled(self, enabled):
+        for control in (self.cb_console, self.cb_developer, self.cb_extconsole,
+                        self.btn_game, self.btn_install, self.btn_select_game):
+            control.setEnabled(enabled)
+
     def closeEvent(self, event: QEvent):
-        internal.config.save(self.cb_developer.isChecked(), self.cb_console.isChecked(), self.cb_extconsole.isChecked())
+        if self._busy or self._status_thread is not None or getattr(self, "process", None) is not None:
+            self._close_requested = True
+            event.ignore()
+            return
+        try:
+            internal.config.save(self.cb_developer.isChecked(), self.cb_console.isChecked(), self.cb_extconsole.isChecked())
+        except OSError as error:
+            QMessageBox.critical(self, gt("Error!"), str(error))
+            event.ignore()
+            return
+        event.accept()
