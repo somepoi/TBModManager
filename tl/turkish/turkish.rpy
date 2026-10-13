@@ -1,6 +1,6 @@
 translate turkish strings:
-    old "МЕНЕДЖЕР АДДОНОВ"
-    new "EKLENTI YÖNETİCİSİ"
+    old "МЕНЕДЖЕР МОДОВ"
+    new "MOD YÖNETİCİSİ"
     
     old "Сортировка: А-Я"
     new "Sıralama: A-Z"
@@ -20,17 +20,17 @@ translate turkish strings:
     old "Попробуйте изменить поисковый запрос"
     new "Arama sorgunuzu değiştirmeyi deneyin"
     
-    old "Аддоны не найдены"
-    new "Eklenti bulunamadı"
+    old "Моды не найдены"
+    new "Mod bulunamadı"
     
-    old "Установите аддоны в папку игры"
-    new "Eklentileri oyun klasörüne yükleyin"
+    old "Установите моды в папку игры"
+    new "Modları oyun klasörüne yükleyin"
     
-    old "ИНФОРМАЦИЯ ОБ АДДОНЕ"
-    new "EKLENTİ BİLGİSİ"
+    old "ИНФОРМАЦИЯ О МОДЕ"
+    new "MOD BİLGİSİ"
     
-    old "Выберите аддон из списка\nчтобы увидеть информацию"
-    new "Bilgi görmek için\nlisteden bir eklenti seçin"
+    old "Выберите мод из списка\nчтобы увидеть информацию"
+    new "Bilgi görmek için\nlisteden bir mod seçin"
     
-    old "Установите аддоны\nчтобы увидеть информацию"
-    new "Bilgi görmek için\neklentileri yükleyin"
+    old "Установите моды\nчтобы увидеть информацию"
+    new "Bilgi görmek için\nmodları yükleyin"

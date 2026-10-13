@@ -1,14 +1,14 @@
-init -999 python in tbam_store:
+init -999 python in tbmm_store:
 
     import os
 
     os.system("cls")
     os.system("title \"Tiny Bunny debug console\"")
-    print("Tiny Bunny with TBAddonManager started.\nConsole cleared for your convenience.")
-    print(f"config.developer will be switched to {getattr(renpy.bootstrap, 'tbam_developer', renpy.defaultstore.config.developer)}.")
-    print(f"config.console will be switched to {getattr(renpy.bootstrap, 'tbam_console', renpy.defaultstore.config.console)}.")
+    print("Tiny Bunny with TBModManager started.\nConsole cleared for your convenience.")
+    print(f"config.developer will be switched to {getattr(renpy.bootstrap, 'tbmm_developer', renpy.defaultstore.config.developer)}.")
+    print(f"config.console will be switched to {getattr(renpy.bootstrap, 'tbmm_console', renpy.defaultstore.config.console)}.")
 
-    class _Addon:
+    class _Mod:
         def __init__(self, label, name, description="", avatar=None, authors=None):
             self.label = label
             self.name = name
@@ -24,7 +24,7 @@ init -999 python in tbam_store:
                 self.authors = []
 
         def __repr__(self):
-            return f"Addon({self.name})"
+            return f"Mod({self.name})"
 
         def get_truncated_name(self, max_length=60):
             if len(self.name) > max_length:
@@ -75,16 +75,16 @@ init -999 python in tbam_store:
 
             return False
 
-    addons = {}
+    mods = {}
 
     # Переменная для выбранного мода (для показа деталей)
-    selected_addon = None
+    selected_mod = None
 
     # Сортировка (False = A-Z, True = Z-A)
-    addon_sort_reverse = False
+    mod_sort_reverse = False
 
     # Поисковой запрос
-    addon_search_query = ""
+    mod_search_query = ""
 
     cyr_chars = "йцукенгшщзхъфывапролджэячсмитьбюЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ\"№;:?"
     lat_chars = "qwertyuiop[]asdfghjkl;'zxcvbnm,.QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>@#$^&"
@@ -95,29 +95,29 @@ init -999 python in tbam_store:
     def delatinify(s: str):
         return s.translate(str.maketrans(lat_chars, cyr_chars))
 
-    def get_sorted_addons():
-        return sorted(addons.items(), key=lambda x: x[1].name, reverse=addon_sort_reverse)
+    def get_sorted_mods():
+        return sorted(mods.items(), key=lambda x: x[1].name, reverse=mod_sort_reverse)
 
-    def get_filtered_addons():
-        filtered = [(label, addon) for label, addon in addons.items() 
-                    if addon.matches_search(addon_search_query)]
-        return sorted(filtered, key=lambda x: x[1].name, reverse=addon_sort_reverse)
+    def get_filtered_mods():
+        filtered = [(label, mod) for label, mod in mods.items()
+                    if mod.matches_search(mod_search_query)]
+        return sorted(filtered, key=lambda x: x[1].name, reverse=mod_sort_reverse)
 
-    def toggle_addon_sort():
-        global addon_sort_reverse
-        addon_sort_reverse = not addon_sort_reverse
+    def toggle_mod_sort():
+        global mod_sort_reverse
+        mod_sort_reverse = not mod_sort_reverse
 
     def _ini_parser():
         from configparser import ConfigParser
-        global addons
+        global mods
 
         for fn in renpy.list_files():
-            if fn.split("/")[-1] == "addon.ini":
+            if fn.split("/")[-1] == "mod.ini":
                 try:
                     ini = ConfigParser()
                     ini.read_string(renpy.file(fn).read().decode())
                     for section in ini.sections():
-                        addons[section] = _Addon(
+                        mods[section] = _Mod(
                             label=section,
                             name=ini[section]["name"],
                             description=ini[section]["description"].replace("\\n", "\n").strip(),
@@ -125,7 +125,7 @@ init -999 python in tbam_store:
                             authors=[i for i in ini[section]["authors"].split("\\n")],
                         )
                 except Exception as e:
-                    print(f"There was an error in addon.ini in path \"{fn}\": {e}.")
+                    print(f"There was an error in the mod manifest in path \"{fn}\": {e}.")
 
     _ini_parser()
-    
+

@@ -1,6 +1,6 @@
 translate english strings:
-    old "МЕНЕДЖЕР АДДОНОВ"
-    new "ADDON MANAGER"
+    old "МЕНЕДЖЕР МОДОВ"
+    new "MOD MANAGER"
     
     old "Сортировка: А-Я"
     new "Sort: A-Z"
@@ -20,17 +20,17 @@ translate english strings:
     old "Попробуйте изменить поисковый запрос"
     new "Try changing your search query"
     
-    old "Аддоны не найдены"
-    new "Addons not found"
+    old "Моды не найдены"
+    new "Mods not found"
     
-    old "Установите аддоны в папку игры"
-    new "Install addons to the game folder"
+    old "Установите моды в папку игры"
+    new "Install mods to the game folder"
     
-    old "ИНФОРМАЦИЯ ОБ АДДОНЕ"
-    new "ADDON INFORMATION"
+    old "ИНФОРМАЦИЯ О МОДЕ"
+    new "MOD INFORMATION"
     
-    old "Выберите аддон из списка\nчтобы увидеть информацию"
-    new "Select an addon from the list\nto see information"
+    old "Выберите мод из списка\nчтобы увидеть информацию"
+    new "Select a mod from the list\nto see information"
     
-    old "Установите аддоны\nчтобы увидеть информацию"
-    new "Install addons\nto see information"
+    old "Установите моды\nчтобы увидеть информацию"
+    new "Install mods\nto see information"
