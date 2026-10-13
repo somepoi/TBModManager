@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Mod Manager for Tiny Bunny"
 authors = [
     {name = "ohfkgsofsex", email = "abuanin5@gmail.com"},
-    {name = "tecquo", email = ""},
+    {name = "somepoi", email = ""},
 ]
 dependencies = ["PySide6>=6.10.1", "pyinstaller>=6.17.0", "requests>=2.32.5"]
 requires-python = "==3.11.*"
