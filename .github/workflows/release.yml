@@ -1,0 +1,70 @@
+name: Build and release launcher
+
+on:
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out the tagged commit with full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify the tagged commit belongs to main
+        run: |
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "The release tag must point to a commit in main."
+          }
+
+      - name: Set up Python and PDM
+        uses: pdm-project/setup-pdm@v4
+        with:
+          python-version: '3.11'
+          architecture: x64
+          version: '2.27.0'
+
+      - name: Test release notes extraction
+        run: python -m unittest discover -s tests -v
+
+      - name: Validate tag and extract the latest changelog
+        run: python .github/scripts/release_notes.py "$env:GITHUB_REF_NAME" CHANGELOG.md "$env:RUNNER_TEMP/release-notes.md"
+
+      - name: Install locked dependencies
+        run: pdm install --check --frozen-lockfile --prod
+
+      - name: Build launcher
+        run: pdm run run-build
+
+      - name: Verify the executable was built
+        run: |
+          if (!(Test-Path -LiteralPath dist/launcher.exe -PathType Leaf)) {
+            throw "The build did not produce dist/launcher.exe."
+          }
+
+      - name: Publish GitHub Release with launcher.exe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$env:GITHUB_REF_NAME" dist/launcher.exe `
+            --verify-tag `
+            --title "$env:GITHUB_REF_NAME" `
+            --notes-file "$env:RUNNER_TEMP/release-notes.md"
