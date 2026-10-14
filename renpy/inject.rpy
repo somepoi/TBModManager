@@ -5,10 +5,10 @@ init -1000 python hide:
         ini.read_string(renpy.file("TBModManager.ini").read().decode())
         if bool(int(ini.get("gameconfig", "enabled", fallback="0"))):
             renpy.bootstrap.tbmm_initialized = True
-        if bool(int(ini.get("gameconfig", "developer", fallback="0"))):
-            renpy.bootstrap.tbmm_developer = True
-        if bool(int(ini.get("gameconfig", "console", fallback="0"))):
-            renpy.bootstrap.tbmm_console = True
+            if bool(int(ini.get("gameconfig", "developer", fallback="0"))):
+                renpy.bootstrap.tbmm_developer = True
+            if bool(int(ini.get("gameconfig", "console", fallback="0"))):
+                renpy.bootstrap.tbmm_console = True
 
 init 1000 python:
     if getattr(renpy.bootstrap, "tbmm_initialized", False):
